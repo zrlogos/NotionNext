@@ -3,6 +3,7 @@ import { useGlobal } from '@/lib/global'
 import { useRouter } from 'next/router'
 import { useEffect, useState } from 'react'
 import CONFIG from '../config'
+import BlogPostCard from './BlogPostCard'
 import NavPostItem from './NavPostItem'
 
 /**
@@ -17,56 +18,31 @@ const NavPostList = props => {
   const { locale, currentSearch } = useGlobal()
   const router = useRouter()
 
+  // 按分类将文章分组成文件夹
+  const categoryFolders = groupArticles(filteredNavPages)
+
   // 存放被展开的分组
   const [expandedGroups, setExpandedGroups] = useState([])
 
-  // 排他折叠
+  // 是否排他折叠，一次只展开一个文件夹
   const GITBOOK_EXCLUSIVE_COLLAPSE = siteConfig(
     'GITBOOK_EXCLUSIVE_COLLAPSE',
     null,
     CONFIG
   )
 
-  // 按照分类、分组折叠内榕
-  const categoryFolders = filteredNavPages?.reduce((groups, item) => {
-    const categoryName = item?.category ? item?.category : '' // 将category转换为字符串
-
-    let existingGroup = null
-    // 开启自动分组排序
-    if (siteConfig('GITBOOK_AUTO_SORT', true, CONFIG)) {
-      existingGroup = groups.find(group => group.category === categoryName) // 搜索同名的最后一个分组
-    } else {
-      existingGroup = groups[groups.length - 1] // 获取最后一个分组
-    }
-
-    // 添加数据
-    if (existingGroup && existingGroup.category === categoryName) {
-      existingGroup.items.push(item)
-    } else {
-      groups.push({ category: categoryName, items: [item] })
-    }
-    return groups
-  }, [])
-
-  // 首次打开页面时，跟踪是否已经选择了一个项
-  categoryFolders?.forEach(group => {
-    let hasExpandFolder = false
-    group.items.forEach(post => {
-      if (router.asPath.split('?')[0] === '/' + post.slug) {
-        hasExpandFolder = true
-      }
-    })
-    group.selected = hasExpandFolder
-  })
-
-  // 如果都没有选中默认打开第一个
   useEffect(() => {
+    // 展开文件夹
     setTimeout(() => {
-      if (expandedGroups.length === 0) {
-        setExpandedGroups([0])
-      }
+      const currentPath = decodeURIComponent(router.asPath.split('?')[0])
+      const defaultOpenIndex = getDefaultOpenIndexByPath(
+        categoryFolders,
+        currentPath
+      )
+      setExpandedGroups([defaultOpenIndex])
     }, 500)
-  }, [router])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router, filteredNavPages])
 
   // 折叠项切换，当折叠或展开数组时会调用
   const toggleItem = index => {
@@ -93,6 +69,8 @@ const NavPostList = props => {
     // 更新展开分组数组
     setExpandedGroups(newExpandedGroups)
   }
+
+  // 空数据返回
   if (!categoryFolders || categoryFolders.length === 0) {
     // 空白内容
     return (
@@ -104,11 +82,22 @@ const NavPostList = props => {
       </div>
     )
   }
+  // 如果href
+  const href = siteConfig('GITBOOK_INDEX_PAGE') + ''
+
+  const homePost = {
+    id: '-1',
+    title: siteConfig('DESCRIPTION'),
+    href: href.indexOf('/') !== 0 ? '/' + href : href
+  }
 
   return (
     <div
       id='posts-wrapper'
-      className='w-full flex-grow space-y-0.5 tracking-wider'>
+      className='w-full flex-grow space-y-0.5 pr-4 tracking-wider'>
+      {/* 当前文章 */}
+      <BlogPostCard className='mb-4' post={homePost} />
+
       {/* 文章列表 */}
       {categoryFolders?.map((group, index) => (
         <NavPostItem
@@ -123,4 +112,54 @@ const NavPostList = props => {
   )
 }
 
+// 按照分类将文章分组成文件夹
+function groupArticles(filteredNavPages) {
+  if (!filteredNavPages) {
+    return []
+  }
+  const groups = []
+  const AUTO_SORT = siteConfig('GITBOOK_AUTO_SORT', true, CONFIG)
+
+  for (let i = 0; i < filteredNavPages.length; i++) {
+    const item = filteredNavPages[i]
+    const categoryName = item?.category ? item?.category : '' // 将category转换为字符串
+
+    let existingGroup = null
+    // 开启自动分组排序；将同分类的自动归到同一个文件夹，忽略Notion中的排序
+    if (AUTO_SORT) {
+      existingGroup = groups.find(group => group.category === categoryName) // 搜索同名的最后一个分组
+    } else {
+      existingGroup = groups[groups.length - 1] // 获取最后一个分组
+    }
+
+    // 添加数据
+    if (existingGroup && existingGroup.category === categoryName) {
+      existingGroup.items.push(item)
+    } else {
+      groups.push({ category: categoryName, items: [item] })
+    }
+  }
+  return groups
+}
+
+/**
+ * 查看当前路由需要展开的菜单索引
+ * 路过都没有，则返回0，即默认展开第一个
+ * @param {*} categoryFolders
+ * @param {*} path
+ * @returns {number} 返回需要展开的菜单索引
+ */
+function getDefaultOpenIndexByPath(categoryFolders, path) {
+  // 查找满足条件的第一个索引
+  const index = categoryFolders.findIndex(group => {
+    return group.items.some(post => path === post.href)
+  })
+
+  // 如果找到满足条件的索引，则设置为该索引
+  if (index !== -1) {
+    return index
+  }
+
+  return 0
+}
 export default NavPostList
